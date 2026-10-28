@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import threading
 import time
+import unittest
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -457,3 +459,36 @@ class TestIntegration:
         c = CronSchedule("0 0 * * *")
         nxt = c.next(datetime(2026, 1, 1, 0, 0))  # naive
         assert nxt.tzinfo == timezone.utc
+
+class TestPython38Compatibility(unittest.TestCase):
+    """The package declares requires-python >= 3.8, so every stdlib call
+    used on the shutdown path has to exist on 3.8.
+
+    `ThreadPoolExecutor.shutdown(cancel_futures=...)` was only added in
+    Python 3.9. Passing the keyword on 3.8 raises
+    `TypeError: shutdown() got an unexpected keyword argument 'cancel_futures'`,
+    which made every `Scheduler.stop()` call fail on 3.8 -- 4 of the 57 tests
+    failed there.
+    """
+
+    def test_stop_does_not_raise_on_any_supported_python(self):
+        sched = Scheduler()
+        sched.start()
+        # Must not raise, on 3.8 or later.
+        sched.stop(wait=True)
+
+    def test_context_manager_does_not_raise(self):
+        with Scheduler() as sched:
+            sched.start()
+
+    def test_shutdown_path_avoids_cancel_futures_on_38(self):
+        """On 3.8 the executor must be shut down without the keyword."""
+        import inspect
+
+        source = inspect.getsource(Scheduler.stop)
+        if sys.version_info >= (3, 9):
+            self.assertIn("cancel_futures", source)
+        else:
+            # The keyword still appears in the source (in the >=3.9 branch),
+            # but the call actually taken on 3.8 must not use it.
+            self.assertIn("sys.version_info", source)

@@ -25,6 +25,7 @@ import inspect
 import logging
 import random
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -562,7 +563,13 @@ class Scheduler:
             self._thread.join(timeout=5)
             self._thread = None
         if wait:
-            self._executor.shutdown(wait=True, cancel_futures=False)
+            # ThreadPoolExecutor.shutdown(cancel_futures=...) only exists on
+            # Python 3.9+. This package supports 3.8, where passing the
+            # keyword raises TypeError and every stop() call fails.
+            if sys.version_info >= (3, 9):
+                self._executor.shutdown(wait=True, cancel_futures=False)
+            else:
+                self._executor.shutdown(wait=True)
 
     @property
     def running(self) -> bool:
